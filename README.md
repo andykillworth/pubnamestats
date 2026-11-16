@@ -5,11 +5,10 @@ Programmatic SEO test site: statistics on UK pub names, built from OpenStreetMap
 - `data/pubs.csv` – Overpass export of every UK `amenity=pub` with a name (© OpenStreetMap contributors, ODbL)
 - `build.py` – standard-library Python; generates the static site into `dist/`
 
-## Cloudflare Pages settings
+## Cloudflare (Workers with static assets)
 
-- Framework preset: None
 - Build command: `python3 build.py`
-- Build output directory: `dist`
+- Deploy command: `npx wrangler deploy` (reads `wrangler.jsonc`, serves `dist/`)
 
 ## Page types
 

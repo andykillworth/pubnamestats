@@ -501,6 +501,13 @@ and {fmt(unique_count)} of them belong to just one pub.</p>
 <h2>The 20 most common pub names</h2>{name_table(top10)}
 <p><a href="/most-common-pub-names/">See the top 500</a> · <a href="/names/">Browse A–Z</a> · <a href="/areas/">By postcode area</a> · <a href="/words/">By word</a></p>""")
 
+    # ---- 404 (not in sitemap)
+    page("/404/", "Page not found | Pub Name Stats", "Page not found.",
+         "<h1>We couldn't find that page</h1><p>Try the <a href='/names/'>A–Z of pub names</a> or the <a href='/most-common-pub-names/'>most common names</a>.</p>")
+    SITEMAP.remove("/404/")
+    os.replace(os.path.join(OUT, "404", "index.html"), os.path.join(OUT, "404.html"))
+    os.rmdir(os.path.join(OUT, "404"))
+
     # ---- sitemap / robots / headers
     with open(os.path.join(OUT, "sitemap.xml"), "w") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
