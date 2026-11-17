@@ -5,6 +5,7 @@ No dependencies beyond the Python standard library. Output goes to dist/.
 Cloudflare Pages: build command `python3 build.py`, output directory `dist`.
 """
 import csv
+import hashlib
 import html
 import json
 import os
@@ -143,7 +144,7 @@ from design import CSS, FINDER_JS, background_svg, dot_map, favicon_svg, logo_sv
 NAV = [("Most common", "/most-common-pub-names/"), ("A–Z", "/names/"), ("Areas", "/areas/"), ("Words", "/words/")]
 
 
-def page(path, title, description, body, breadcrumbs=None, section=None, scripts=""):
+def page(path, title, description, body, breadcrumbs=None, section=None, scripts="", indexable=True):
     canonical = SITE + path
     crumbs_html = ""
     ld = []
@@ -161,12 +162,14 @@ def page(path, title, description, body, breadcrumbs=None, section=None, scripts
         })
     ld_html = "".join(f'<script type="application/ld+json">{json.dumps(x)}</script>' for x in ld)
     nav = "".join(f'<a href="{u}"{" aria-current=\"page\"" if section == u else ""}>{t}</a>' for t, u in NAV)
+    robots_meta = (f'<link rel="canonical" href="{canonical}">' if indexable
+                   else '<meta name="robots" content="noindex">')
     doc = f"""<!doctype html>
 <html lang="en-GB"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(title)}</title>
 <meta name="description" content="{esc(description)}">
-<link rel="canonical" href="{canonical}">
+{robots_meta}
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#1E3B32">
 <meta property="og:type" content="website">
@@ -183,7 +186,7 @@ def page(path, title, description, body, breadcrumbs=None, section=None, scripts
 <header class="fascia"><div class="wrap"><a class="brand" href="/" aria-label="Pub Name Stats home">{logo_svg()}<span class="wordmark">Pub Name Stats</span></a>
 <nav aria-label="Main">{nav}</nav></div></header>
 <main class="wrap">{crumbs_html}{body}</main>
-<footer><div class="wrap"><p>Pub data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>, available under the Open Database Licence. Updated {BUILD_DATE}.</p>
+<footer><div class="wrap"><p>Pub data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>, available under the Open Database Licence. Data updated {DATA_DATE}.</p>
 <p>We count “The Red Lion”, “Red Lion” and “Red Lion Inn” as one name. <a href="/about/">How we count</a></p></div></footer>
 {scripts}
 </body></html>"""
@@ -191,10 +194,13 @@ def page(path, title, description, body, breadcrumbs=None, section=None, scripts
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         f.write(doc)
-    SITEMAP.append(path)
+    if indexable:
+        SITEMAP.append(path)
+        PAGE_HASH[path] = hashlib.sha1(doc.encode()).hexdigest()
 
 
 SITEMAP = []
+PAGE_HASH = {}
 
 
 def name_table(rows, show_rank=True):
@@ -207,6 +213,80 @@ def name_table(rows, show_rank=True):
         for r, d, s, c in rows
     )
     return f"<table>{head}{body}</table>"
+
+
+# ---------------------------------------------------------------- lastmod + sitemaps
+
+LASTMOD_FILE = "data/lastmod.json"
+try:
+    with open(LASTMOD_FILE) as f:
+        LASTMOD = json.load(f)
+except FileNotFoundError:
+    LASTMOD = {}
+
+
+def _file_hash(path):
+    with open(path, "rb") as f:
+        return hashlib.sha1(f.read()).hexdigest()
+
+
+def lastmod_for(key, digest):
+    """Keep a page's lastmod unless its content has actually changed."""
+    old = LASTMOD.get(key)
+    if old and old[0] == digest:
+        return old[1]
+    LASTMOD[key] = [digest, BUILD_DATE]
+    return BUILD_DATE
+
+
+DATA_DATE = lastmod_for("__data__", _file_hash(DATA))
+
+# Separate sitemaps per page type, so Search Console reports indexing for each one.
+SITEMAP_GROUPS = [
+    ("names", lambda p: p.startswith("/name/")),
+    ("words", lambda p: p.startswith("/word/")),
+    ("areas", lambda p: p.startswith("/area/")),
+    ("pages", lambda p: True),
+]
+
+
+def write_sitemaps_and_robots():
+    # Pages are hashed with the build date stripped, so a rebuild alone doesn't bump lastmod.
+    groups = {name: [] for name, _ in SITEMAP_GROUPS}
+    for path in SITEMAP:
+        for name, test in SITEMAP_GROUPS:
+            if test(path):
+                groups[name].append(path)
+                break
+    entries = []
+    for name, paths in groups.items():
+        dates = []
+        with open(os.path.join(OUT, f"sitemap-{name}.xml"), "w") as f:
+            f.write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
+            for p in paths:
+                d = lastmod_for(p, PAGE_HASH[p])
+                dates.append(d)
+                f.write(f"<url><loc>{SITE}{p}</loc><lastmod>{d}</lastmod></url>\n")
+            f.write("</urlset>\n")
+        entries.append((name, max(dates)))
+    with open(os.path.join(OUT, "sitemap.xml"), "w") as f:
+        f.write('<?xml version="1.0" encoding="UTF-8"?>\n<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
+        for name, d in entries:
+            f.write(f"<sitemap><loc>{SITE}/sitemap-{name}.xml</loc><lastmod>{d}</lastmod></sitemap>\n")
+        f.write("</sitemapindex>\n")
+    # Drop pages that no longer exist from the manifest.
+    live = set(PAGE_HASH) | {"__data__"}
+    for k in list(LASTMOD):
+        if k not in live:
+            del LASTMOD[k]
+    with open(LASTMOD_FILE, "w") as f:
+        json.dump(LASTMOD, f, indent=0, sort_keys=True)
+    with open(os.path.join(OUT, "robots.txt"), "w") as f:
+        f.write("# Everything is open to every crawler, including AI crawlers.\n"
+                "User-agent: *\n"
+                "Disallow: /names.json\n"
+                "Allow: /\n\n"
+                f"Sitemap: {SITE}/sitemap.xml\n")
 
 
 # ---------------------------------------------------------------- build
@@ -360,12 +440,12 @@ def main():
         related = Counter()
         for w in k.split():
             if w in word_names and w not in STOPWORDS:
-                for other in word_names[w]:
+                for other in sorted(word_names[w]):
                     if other != k and other in has_page:
                         related[other] = len(by_key[other])
         if related:
             body.append("<h2>Similar names</h2><ul class='cols'>" + "".join(
-                f"<li>{link(o)} <span class='c'>{len(by_key[o])}</span></li>" for o, _ in related.most_common(24)) + "</ul>")
+                f"<li>{link(o)} <span class='c'>{len(by_key[o])}</span></li>" for o in sorted(related, key=lambda o: (-related[o], o))[:24]) + "</ul>")
         word_links = [w for w in k.split() if w in words]
         if word_links:
             body.append("<p>See every pub with " + " or ".join(
@@ -477,7 +557,7 @@ Where dropping the word would leave something odd, it stays: “New Inn” isn't
 <p>Area pages use the letters at the start of each pub's postcode. Pubs without a postcode count towards UK totals
 but don't appear on area pages.</p>
 <h2>Using the data</h2>
-<p>Pub data © OpenStreetMap contributors, available under the Open Database Licence. Last updated {BUILD_DATE}.</p>""",
+<p>Pub data © OpenStreetMap contributors, available under the Open Database Licence. Data last updated {DATA_DATE}.</p>""",
          [("How we count", "/about/")])
 
     beam = "".join(
@@ -499,24 +579,20 @@ and {fmt(unique_count)} of those are painted on just one sign.</p>
 or look them up <a href="/areas/">by postcode area</a> or <a href="/words/">by word</a>.</p>""",
          scripts=f"<script>{FINDER_JS}</script>")
 
-    # ---- 404 (not in sitemap)
+    # ---- 404 (noindex, not in sitemap)
     page("/404/", "Page not found | Pub Name Stats", "Page not found.",
-         "<h1>We couldn't find that page</h1><p>Try the <a href='/names/'>A–Z of pub names</a> or the <a href='/most-common-pub-names/'>most common names</a>.</p>")
-    SITEMAP.remove("/404/")
+         "<h1>We couldn't find that page</h1><p>Try the <a href='/names/'>A–Z of pub names</a> or the <a href='/most-common-pub-names/'>most common names</a>.</p>",
+         indexable=False)
     os.replace(os.path.join(OUT, "404", "index.html"), os.path.join(OUT, "404.html"))
     os.rmdir(os.path.join(OUT, "404"))
 
-    # ---- sitemap / robots / headers
-    with open(os.path.join(OUT, "sitemap.xml"), "w") as f:
-        f.write('<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n')
-        for p in SITEMAP:
-            f.write(f"<url><loc>{SITE}{p}</loc><lastmod>{BUILD_DATE}</lastmod></url>\n")
-        f.write("</urlset>\n")
-    with open(os.path.join(OUT, "robots.txt"), "w") as f:
-        f.write(f"User-agent: *\nAllow: /\n\nSitemap: {SITE}/sitemap.xml\n")
+    write_sitemaps_and_robots()
 
     print(f"pubs={total} names={len(ranked)} name_pages={len(page_keys)} word_pages={len(words)} "
           f"area_pages={len(by_area)} total_pages={len(SITEMAP)}")
+
+    import checks
+    checks.run(OUT, SITE, SITEMAP)
 
 
 if __name__ == "__main__":

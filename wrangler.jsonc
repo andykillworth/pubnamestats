@@ -1,5 +1,6 @@
 {
   "name": "pubnamestats",
+  "main": "src/worker.js",
   "compatibility_date": "2026-11-01",
   // Wrangler runs this before every deploy, so no dashboard build command is needed.
   "build": {
@@ -7,7 +8,13 @@
   },
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "404-page",
-    "html_handling": "auto-trailing-slash"
-  }
+    "html_handling": "auto-trailing-slash",
+    // Send every request through src/worker.js so redirects are 301s.
+    "run_worker_first": true
+  },
+  // Keep the *.workers.dev URL working (it 301s to the real domain) and stop preview URLs being crawled.
+  "workers_dev": true,
+  "preview_urls": false
 }

@@ -5,6 +5,18 @@ Programmatic SEO test site: statistics on UK pub names, built from OpenStreetMap
 - `data/pubs.csv` – Overpass export of every UK `amenity=pub` with a name (© OpenStreetMap contributors, ODbL)
 - `build.py` – standard-library Python; generates the static site into `dist/`
 
+## Technical SEO
+
+- `src/worker.js` runs before the static assets and 301s every variant to one canonical URL:
+  `http`, `www.` and `*.workers.dev` → `https://pubnamestats.co.uk`, uppercase → lowercase,
+  missing trailing slash and `/index.html` → `/path/`.
+- Self-referencing absolute canonical on every indexable page; the 404 page is `noindex` with no canonical.
+- `sitemap.xml` is an index of `sitemap-names.xml`, `sitemap-words.xml`, `sitemap-areas.xml` and `sitemap-pages.xml`,
+  so Search Console reports indexing per page type.
+- `lastmod` only changes when a page's content changes, tracked in `data/lastmod.json` (commit it after local builds).
+- `checks.py` runs at the end of every build and fails the deploy on canonical, title, H1, broken-link,
+  sitemap or robots.txt problems.
+
 ## Cloudflare (Workers with static assets)
 
 - Build command: `python3 build.py`
