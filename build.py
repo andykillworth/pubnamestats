@@ -182,6 +182,11 @@ def page(path, title, description, body, breadcrumbs=None, section=None, scripts
 <meta property="og:description" content="{esc(description)}">
 <meta property="og:url" content="{canonical}">
 <meta property="og:image" content="{SITE}/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:alt" content="A painted pub sign reading The Red Lion, next to the words Pub Name Stats">
+<meta property="og:locale" content="en_GB">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="/fonts/ultra.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/style.css">
